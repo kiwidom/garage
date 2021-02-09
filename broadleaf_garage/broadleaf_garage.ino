@@ -14,8 +14,8 @@ char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursd
 
 
 // Replace with your network credentials
-const char* ssid     = "SPARK-GLDE53";
-const char* password = "X3RTR4ZFJ9";
+const char* ssid     = "XXXSSIDXXX";
+const char* password = "XXXPASSWORD";
 
 String remote_WEBADDRESS = "www.mnemonics.co.nz";
 String remote_PAGEDEST = "/garage/rxState.php";
