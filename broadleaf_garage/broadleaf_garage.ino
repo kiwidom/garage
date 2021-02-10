@@ -4,7 +4,8 @@
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 
-const long utcOffsetInSeconds = 3600;
+const long utcOffsetInSeconds = 43200;
+// New Zealand UTC = 12 : 12 * 60 * 60 = 43200
 
 // Define NTP Client to get time
 WiFiUDP ntpUDP;
