@@ -1,5 +1,36 @@
-// Load Wi-Fi library
-
+/*
+ * Copyright (c) Mnemonics Ltd
+ *
+ * broadleaf_garage.ino
+ *
+ * This is a specific ESP-01 file to load onto an attached ESP-01 for controlling a garage door
+ * ESP-01 connected to a https://www.jaycar.co.nz/duinotech-smart-wifi-relay-kit/p/XC3804
+ * Using two soldered lines to Pin2 and Pin0 of ESP-01 Pin2 - Closed door position Reed switch Pin0 - Open door position Reed Switch
+ *
+ * ----------------------------------------------------------------------------------------------------
+ * Uses HTML webpage to call via it's IP address examples below
+ * 
+ * 192.168.1.75 - Home page with buttons for PULSE door output, OPEN and CLOSE which will only be allowed
+ *                if the door switches are in the opposing position as above
+ *
+ * 192.168.1.75/logs - Show the last 20 log outputs 
+ * 192.168.1.75/pulse - 1 second pulse on the garage door open switch
+ * 192.168.1.75/close - 1 second pulse on the garage door open switch (if the two input switches reflect an OPEN state)
+ * 192.168.1.75/open  - 1 second pulse on the garage door open switch (if the two input switches reflect an CLOSED state)
+ *
+ * ----------------------------------------------------------------------------------------------------
+ *
+ * This program listens to for a connected client with a GET request for either logs/pulse/open/close
+ * This program will send updates to mnenomics.co.nz/garage/rxState?state={OPEN|MOVING|CLOSED|BOOTING}&sender={xx.xx.xx.xx - [device name]
+ *
+ *
+ * IMPORTANT: TURN THE ESP DEVICE ON WHEN THE DOOR IS MOVING - If either of the Pin0 or Pin2 switches are on - it will not boot into run mode
+ *
+ * @date  Feb 2021  
+ *
+ *
+ */
+// Load Wi-Fi and NTP and UDP libraries
 #include <NTPClient.h>
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
@@ -15,13 +46,13 @@ char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursd
 
 
 // Replace with your network credentials
-const char* ssid     = "XXXSSIDXXX";
-const char* password = "XXXPASSWORD";
+const char* ssid     = "SPARK-GLDE53";
+const char* password = "X3RTR4ZFJ9";
 
-String remote_WEBADDRESS = "www.mnemonics.co.nz";
+String remote_WEBADDRESS = "mnemonics.co.nz";
 String remote_PAGEDEST = "/garage/rxState.php";
 
-
+// Input Swich ports
 const int closedSwitch = 2;
 const int openSwitch = 0;
 
@@ -54,64 +85,106 @@ String myName = "";
 #define LOGSIZE 20
 
 struct _logs {
-	char output[50];
-	char timeStamp[30];
+  char output[50];
+  char timeStamp[30];
 }logArray[LOGSIZE];
 
 struct _logs *currentLogPtr = logArray;
 int currentLog = 0;
 
-//void updateWeb(String pageDestination, String dataToSend)
-//void checkForClient();
-//void checkForChangeInDoorState();
-
+/**
+ * Name: setup
+ * 
+ * Return: None
+ * 
+ * Parameters: None
+ * 
+ * Description: Mandatory setup function - on entry/restart/boot
+ *
+ */
 void setup()
 {
-  pinMode(0, OUTPUT);
-  pinMode(closedSwitch, INPUT_PULLUP);
-  pinMode(openSwitch, INPUT_PULLUP);
-  Serial.begin(9600);
-  
-  
-  WiFi.hostname("broadleaf_Garage");
-
-
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) 
-  {
-    delay(500);
-    Serial.print(".");
-  }
-  
-  myIP = WiFi.localIP().toString();
-  myName = WiFi.hostname();
-  
-  updateWeb( remote_PAGEDEST, "BOOTING" );
-  
-  // Print local IP address and start web server
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-  server.begin();
-  
-  timeClient.begin();
-  
-  lastDoorClosed = digitalRead(closedSwitch);
-  lastDoorOpen = digitalRead(openSwitch);
-  
-  addLogEntry("Successful Booting");
-  
-
+	// Start hardware states
+	pinMode(0, OUTPUT);
+	pinMode(closedSwitch, INPUT_PULLUP);
+	pinMode(openSwitch, INPUT_PULLUP);
+	// start the time client
+	timeClient.begin();
+	// Call the Wifi routines
+	startWifi();
+	//Let Mnemonics we're on board
+	updateWeb( remote_PAGEDEST, "BOOTING" );
+	//Store the initial state of the doors
+	lastDoorClosed = digitalRead(closedSwitch);
+	lastDoorOpen = digitalRead(openSwitch);
+	//add successful booting to the logs
+	addLogEntry("Successful Booting");
 }
 
 
+/**
+ * Name: startWifi
+ * 
+ * Return: None
+ * 
+ * Parameters: None
+ * 
+ * Description: Starts up Wifi and tries to connect to home router
+ *
+ */
+void startWifi()
+{
+	int wait = 6000;
+	long int time = millis();
+	// Set the wifi client name
+	WiFi.hostname("broadleaf_Garage");
 
+	// Start the wifi and connect to the Router
+	WiFi.begin(ssid, password);
+	// Wait until we are connected...
+	while (WiFi.status() != WL_CONNECTED) 
+	{
+		delay(500);
+		// but only try for 6 seconds     
+		if ( millis() > (time + wait) )
+		  break;
+	}
+	// if we didn't connect - log it amd drop out - we'll get another chance when we try to log to Mnemonics and wifi isn't up
+	if ( WiFi.status() != WL_CONNECTED )
+	{
+		addLogEntry("FAILED to get WiFi Connection - ABORTING!");
+		return;
+	}
+
+	// store the variables
+	myIP = WiFi.localIP().toString();
+	myName = WiFi.hostname();  
+
+	// log it
+	addLogEntry("Connected to Router");
+
+	// Now start the Server - for connecting to mnemonics
+	server.begin();
+}
+
+
+/**
+ * Name: loop
+ * 
+ * Return: None
+ * 
+ * Parameters: None
+ * 
+ * Description: Mandatory loop function
+ *
+ */
 void loop()
 {
-	checkForClient();
-	
-	checkForChangeInDoorState();
-	
+  // check if anyone has connected to us and is requesting a page
+  checkForClient();
+  // check if the input switches have changed - need to know if the door has moved manually
+  checkForChangeInDoorState();
+  
 }
 
 /**
@@ -126,25 +199,26 @@ void loop()
  */
 void checkForChangeInDoorState()
 {
-	unsigned long currentChangeTime = millis();
-	// Waiting until 5 seconds has passed before checking
-	if (currentChangeTime < (previousChangeTime + 5000) )
-		return;
-		
-	previousChangeTime = currentChangeTime;
-	
-	int currentDoorClosed = digitalRead(closedSwitch);
+  unsigned long currentChangeTime = millis();
+  // Waiting until 5 seconds has passed before checking
+  if (currentChangeTime < (previousChangeTime + 5000) )
+    return;
+    
+  previousChangeTime = currentChangeTime;
+  
+  int currentDoorClosed = digitalRead(closedSwitch);
     int currentDoorOpen = digitalRead(openSwitch); 
     
     // only update webserver if there has been a state change
     if ( currentDoorClosed != lastDoorClosed || currentDoorOpen != lastDoorOpen )
     {
-    	String doorState = getState();
-    	updateWeb( remote_PAGEDEST, doorState );
-  		addLogEntry("Change of Door State Seen");
+      String doorState = getState();
+      updateWeb( remote_PAGEDEST, doorState );
+      addLogEntry("Change of Door State Seen");
     }
-    	
+      
 }
+
 
 /**
  * Name: getTimeStamp
@@ -158,20 +232,17 @@ void checkForChangeInDoorState()
  */
 String getTimeStamp()
 {
-	timeClient.update();
-	
-	String timeStamp = daysOfTheWeek[timeClient.getDay()];
-	timeStamp += " ";
-	/*timeStamp += timeClient.getHours();
-	timeStamp += ":";
-	timeStamp += timeClient.getMinutes();
-	timeStamp += ":";
-	timeStamp += timeClient.getSeconds();*/
-	timeStamp += timeClient.getFormattedTime();
-	
-	return timeStamp;
-	
+  timeClient.update();
+  
+  String timeStamp = daysOfTheWeek[timeClient.getDay()];
+  timeStamp += " ";
+  timeStamp += timeClient.getFormattedTime();
+  
+  return timeStamp;
+  
 }
+
+
 /**
  * Name: addLogEntry
  * 
@@ -184,14 +255,14 @@ String getTimeStamp()
  */
 void addLogEntry(String output)
 {
-	if ( currentLog >= LOGSIZE-1 )
-		currentLog = 0;
-	else 
-		currentLog++;
-		
-	output.toCharArray(currentLogPtr[currentLog].output, 50);
-	getTimeStamp().toCharArray(currentLogPtr[currentLog].timeStamp, 30);
-	
+  if ( currentLog >= LOGSIZE-1 )
+    currentLog = 0;
+  else 
+    currentLog++;
+    
+  output.toCharArray(currentLogPtr[currentLog].output, 50);
+  getTimeStamp().toCharArray(currentLogPtr[currentLog].timeStamp, 30);
+  
 }
 
 
@@ -207,19 +278,20 @@ void addLogEntry(String output)
  */
 String getState()
 {
-	lastDoorClosed = digitalRead(closedSwitch);
-	lastDoorOpen = digitalRead(openSwitch);
-	
-	if ( lastDoorClosed == LOW  && lastDoorOpen == HIGH ) 
-		return "CLOSED";
-	if ( lastDoorClosed == HIGH  && lastDoorOpen == LOW ) 
-		return "OPEN";
-	if ( lastDoorClosed == HIGH  && lastDoorOpen == HIGH ) 
-		return "MOVING";
-	else
-		return "ERROR";
-		
+  lastDoorClosed = digitalRead(closedSwitch);
+  lastDoorOpen = digitalRead(openSwitch);
+  
+  if ( lastDoorClosed == LOW  && lastDoorOpen == HIGH ) 
+    return "CLOSED";
+  if ( lastDoorClosed == HIGH  && lastDoorOpen == LOW ) 
+    return "OPEN";
+  if ( lastDoorClosed == HIGH  && lastDoorOpen == HIGH ) 
+    return "MOVING";
+  else
+    return "ERROR";
+    
 }
+
 
 /**
  * Name: chckForRequest
@@ -237,19 +309,16 @@ void checkForClient()
 
   if (client) 
   {                                         // If a new client connects,
-    Serial.println("New Client.");          // print a message out in the serial port
     String currentLine = "";                // make a String to hold incoming data from the client
     currentTime = millis();
     previousTime = currentTime;
        
-    
     while (client.connected() && currentTime - previousTime <= timeoutTime) 
     {                                       // loop while the client's connected
       currentTime = millis();         
       if (client.available())
       {                                     // if there's bytes to read from the client,
         char c = client.read();             // read a byte, then
-        Serial.write(c);                    // print it out the serial monitor
         header += c;
         if (c == '\n') 
          {                                  // if the byte is a newline character
@@ -324,35 +393,35 @@ void checkForClient()
             
             if (  (header.indexOf("GET /logs") >= 0) )
             {
-       			for ( int i = 0; i < LOGSIZE; i++ )
-       			{
-       				client.println("<p>Output: ");
-		            client.println(currentLogPtr[currentLog].output);
-		            client.println(" - ");
-		            client.println(currentLogPtr[currentLog].timeStamp);
-		            client.println("<p>");
-		            
-		            currentLog--;
-		            if ( currentLog <= -1 )
-		            	currentLog = LOGSIZE-1 ;
-       			}
+            for ( int i = 0; i < LOGSIZE; i++ )
+            {
+              client.println("<p>Output: ");
+                client.println(currentLogPtr[currentLog].output);
+                client.println(" - ");
+                client.println(currentLogPtr[currentLog].timeStamp);
+                client.println("<p>");
+                
+                currentLog--;
+                if ( currentLog <= -1 )
+                  currentLog = LOGSIZE-1 ;
+            }
              
             }
             else
             {
-	            client.println("<p>Last Output: ");
-	            client.println(currentLogPtr[currentLog].output);
-	            client.println("</p>");
-	            client.println("<p>");
-	            client.println(currentLogPtr[currentLog].timeStamp);
-	            client.println("<p>");
-	            
-	            client.println("<p><a href=\"http://");
-            	client.println(myIP);
-            	client.println("/logs/\">View with all logs</a></p>");
-	            
-	            
-        	}
+              client.println("<p>Last Output: ");
+              client.println(currentLogPtr[currentLog].output);
+              client.println("</p>");
+              client.println("<p>");
+              client.println(currentLogPtr[currentLog].timeStamp);
+              client.println("<p>");
+              
+              client.println("<p><a href=\"http://");
+              client.println(myIP);
+              client.println("/logs/\">View with all logs</a></p>");
+              
+              
+          }
             client.println("</body></html>");
             // The HTTP response ends with another blank line
             client.println();
@@ -370,10 +439,10 @@ void checkForClient()
     header = "";
     // Close the connection
     client.stop();
-    Serial.println("Client disconnected.");
-    Serial.println("");
+
   }
 }
+
 
 /**
  * Name: activtate
@@ -387,11 +456,11 @@ void checkForClient()
  */
 void activate()
 {
-	 Serial.write(cmdON, 4);
-     delay(1000);
-     Serial.write(cmdOFF,4);
-     
+	Serial.write(cmdON, 4);
+	delay(1000);
+	Serial.write(cmdOFF,4);
 }
+
 
 /**
  * Name: updateWeb
@@ -404,46 +473,45 @@ void activate()
  */
 void updateWeb(String pageDestination, String dataToSend)
 {
-	//Serial.print("Wifi Status: " + String(WiFi.status()));
-	String GET = pageDestination + "?state=" + dataToSend + "&sender=" + myIP + "-[" + myName + "]";
-	//GET.replace(" ", "_");
-	
-	//Serial.println(GET);
-	
-	WiFiClient sender;
-	
-	const uint16_t port = 80;
-	//const char * host = "mnemonics.co.nz"; // ip or dns
-	String host = remote_WEBADDRESS;
+  // Check if we are not connected - if not then restart everything
+  if ( WiFi.status() != WL_CONNECTED )
+  {
+    addLogEntry("Wifi Gone - Restarting Wifi");
+    WiFi.disconnect();
+    delay(100);
+    startWifi();
+  }
+    // Buld up string to send to mnemonics
+  String GET = pageDestination + "?state=" + dataToSend + "&sender=" + myIP + "-[" + myName + "]";
 
-	//if ( DEBUG >= DEBUG_LEVEL_1 )
-		Serial.println("Attempting to send data to :[" + host + "]");
+  // Create the Client 
+  WiFiClient sender;
+  // set the host port
+  const uint16_t port = 80;
+  // use the right address
+  String host = remote_WEBADDRESS;
 
-	if (!sender.connect(host, port)) 
-	{
-		//if ( DEBUG >= DEBUG_LEVEL_1 )
-			Serial.println("connection failed");
-			addLogEntry("FAILED to connect to Mnemonics");
-		return;
-	}
+  if (!sender.connect(host, port)) 
+  {
+    // If we don't have a connection to mnemonics - log the failure and drop out
+    addLogEntry("FAILED to connect to Mnemonics");
+    return;
+  }
 
-	// This will send the request to the server
-	sender.print("GET " + GET);
-	sender.print(" HTTP/1.1\r\nHost: ");
-	sender.print(host);
-	sender.print("\r\nConnection: close\r\n");
-	sender.println();
-	
+  // This will send the request to the server
+  sender.print("GET " + GET);
+  sender.print(" HTTP/1.1\r\nHost: ");
+  sender.print(host);
+  sender.print("\r\nConnection: close\r\n");
+  sender.println();
+  
 
+  // wait a moment
+  delay(1000);
+  
+  // Read back the first line of the response - Ideally: HTTP/1.1 200 OK
+  String line = sender.readStringUntil('\r');
+  addLogEntry(line);
 
-	delay(1000);
-	
-	// Read back the first line of the response - Ideally: HTTP/1.1 200 OK
-	String line = sender.readStringUntil('\r');
-	Serial.println(line);
-	
-	addLogEntry(line);
-	Serial.println("closing connection");
-	
-	sender.stop();
+  sender.stop();
 }
