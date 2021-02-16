@@ -535,6 +535,8 @@ void updateWeb(String pageDestination, String dataToSend)
 		failedToSend++;
 		return;
 	}
+	// if we have got here - then reset the faileds....
+	failedToSend = 0;
 
 	// This will send the request to the server
 	sender.print("GET " + GET);
