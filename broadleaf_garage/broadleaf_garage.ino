@@ -211,7 +211,7 @@ void loop()
 void checkHealth()
 {
 	// first check fails to send
-	if ( failedToSend >= 5 )
+	if ( failedToSend >= 3 )
 	{
 		addLogEntry("Too many Failed to Sends...restarting Wifi");
 		WiFi.disconnect();
