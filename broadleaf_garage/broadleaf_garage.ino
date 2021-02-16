@@ -92,6 +92,8 @@ struct _logs {
 struct _logs *currentLogPtr = logArray;
 int currentLog = 0;
 
+int failedToSend = 0;
+
 /**
  * Name: setup
  * 
@@ -136,6 +138,10 @@ void startWifi()
 {
 	int wait = 6000;
 	long int time = millis();
+	
+	// ensure we are only a station
+	WiFi.mode(WIFI_STA);
+	
 	// Set the wifi client name
 	WiFi.hostname("broadleaf_Garage");
 
@@ -184,8 +190,36 @@ void loop()
   checkForClient();
   // check if the input switches have changed - need to know if the door has moved manually
   checkForChangeInDoorState();
+  //check health of things
+  checkHealth();
   
 }
+
+/**
+ * Name: checkHealth
+ * 
+ * Return: None
+ * 
+ * Parameters: None
+ * 
+ * Description: check flags/counters and remedy if necessary
+ *
+ */
+void checkHealth()
+{
+	// first check fails to send
+	if ( failedToSend >= 5 )
+	{
+		addLogEntry("Too many Failed to Sends...restarting Wifi");
+		WiFi.disconnect();
+		delay(100);
+		startWifi();
+		failedToSend = 0;
+	}
+
+
+}
+
 
 /**
  * Name: checkForChangeInDoorState
@@ -473,45 +507,46 @@ void activate()
  */
 void updateWeb(String pageDestination, String dataToSend)
 {
-  // Check if we are not connected - if not then restart everything
-  if ( WiFi.status() != WL_CONNECTED )
-  {
-    addLogEntry("Wifi Gone - Restarting Wifi");
-    WiFi.disconnect();
-    delay(100);
-    startWifi();
-  }
-    // Buld up string to send to mnemonics
-  String GET = pageDestination + "?state=" + dataToSend + "&sender=" + myIP + "-[" + myName + "]";
+	// Check if we are not connected - if not then restart everything
+	if ( WiFi.status() != WL_CONNECTED )
+	{
+		addLogEntry("Wifi Gone - Restarting Wifi");
+		WiFi.disconnect();
+		delay(100);
+		startWifi();
+	}
+	// Buld up string to send to mnemonics
+	String GET = pageDestination + "?state=" + dataToSend + "&sender=" + myIP + "-[" + myName + "]";
 
-  // Create the Client 
-  WiFiClient sender;
-  // set the host port
-  const uint16_t port = 80;
-  // use the right address
-  String host = remote_WEBADDRESS;
+	// Create the Client 
+	WiFiClient sender;
+	// set the host port
+	const uint16_t port = 80;
+	// use the right address
+	String host = remote_WEBADDRESS;
 
-  if (!sender.connect(host, port)) 
-  {
-    // If we don't have a connection to mnemonics - log the failure and drop out
-    addLogEntry("FAILED to connect to Mnemonics");
-    return;
-  }
+	if (!sender.connect(host, port)) 
+	{
+		// If we don't have a connection to mnemonics - log the failure and drop out
+		addLogEntry("FAILED to connect to Mnemonics");
+		failedToSend++;
+		return;
+	}
 
-  // This will send the request to the server
-  sender.print("GET " + GET);
-  sender.print(" HTTP/1.1\r\nHost: ");
-  sender.print(host);
-  sender.print("\r\nConnection: close\r\n");
-  sender.println();
-  
+	// This will send the request to the server
+	sender.print("GET " + GET);
+	sender.print(" HTTP/1.1\r\nHost: ");
+	sender.print(host);
+	sender.print("\r\nConnection: close\r\n");
+	sender.println();
 
-  // wait a moment
-  delay(1000);
-  
-  // Read back the first line of the response - Ideally: HTTP/1.1 200 OK
-  String line = sender.readStringUntil('\r');
-  addLogEntry(line);
 
-  sender.stop();
+	// wait a moment
+	delay(1000);
+
+	// Read back the first line of the response - Ideally: HTTP/1.1 200 OK
+	String line = sender.readStringUntil('\r');
+	addLogEntry(line);
+
+	sender.stop();
 }
