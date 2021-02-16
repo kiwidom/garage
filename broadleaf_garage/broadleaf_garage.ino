@@ -30,6 +30,7 @@
  *
  *
  */
+ String __version__ = "$Revision: 3 $";
 // Load Wi-Fi and NTP and UDP libraries
 #include <NTPClient.h>
 #include <ESP8266WiFi.h>
@@ -120,7 +121,9 @@ void setup()
 	lastDoorClosed = digitalRead(closedSwitch);
 	lastDoorOpen = digitalRead(openSwitch);
 	//add successful booting to the logs
-	addLogEntry("Successful Booting");
+	String bootString = "Successful Booting ";
+	bootString += __version__;
+	addLogEntry(bootString);
 }
 
 
