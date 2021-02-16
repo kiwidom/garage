@@ -30,7 +30,7 @@
  *
  *
  */
- String __version__ = "$Revision: 4 $";
+ String __version__ = "$Revision: 5 $";
 // Load Wi-Fi and NTP and UDP libraries
 #include <NTPClient.h>
 #include <ESP8266WiFi.h>
@@ -610,6 +610,9 @@ void sendPageHead( WiFiClient client )
  */
 void sendPageFoot( WiFiClient client )
 {
+	client.println("<p>");
+	client.println(__version__);
+	client.println("</p>");
 	client.println("</body></html>");
     // The HTTP response ends with another blank line
     client.println();
