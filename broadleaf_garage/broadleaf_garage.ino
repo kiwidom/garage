@@ -30,7 +30,7 @@
  *
  *
  */
- String __version__ = "$Revision: 5 $";
+ String __version__ = "$Revision: 6 $";
 // Load Wi-Fi and NTP and UDP libraries
 #include <NTPClient.h>
 #include <ESP8266WiFi.h>
@@ -111,6 +111,8 @@ void setup()
 	pinMode(0, OUTPUT);
 	pinMode(closedSwitch, INPUT_PULLUP);
 	pinMode(openSwitch, INPUT_PULLUP);
+	//start Serial port -used for pulseing door switch
+	Serial.begin(9800);     
 	// start the time client
 	timeClient.begin();
 	// Call the Wifi routines
